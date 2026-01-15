@@ -2,17 +2,20 @@ import sys
 import uproot
 import mplhep as hep
 from matplotlib.figure import Figure
-from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.backends.backend_qt5agg import (
+    FigureCanvasQTAgg as FigureCanvas,
+    NavigationToolbar2QT
+)
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QVBoxLayout, QWidget,
     QComboBox, QLabel, QPushButton, QFileDialog, QMessageBox
 )
 
-# Optional: Apply CMS style if available; fail gracefully if not.
 try:
     hep.style.use("CMS")
 except Exception:
     pass
+
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -21,40 +24,52 @@ class MainWindow(QMainWindow):
         self.resize(1000, 700)
         self.root_file = None
 
-        # --- Main Layout Initialization ---
+        # --- Main Layout ---
         self.widget = QWidget()
         self.layout = QVBoxLayout()
         self.widget.setLayout(self.layout)
         self.setCentralWidget(self.widget)
 
-        # --- File Loading Controls ---
+        # --- File Loading ---
         self.btn_load = QPushButton("Load ROOT File")
         self.btn_load.clicked.connect(self.load_file_dialog)
         self.layout.addWidget(self.btn_load)
-        
+
         self.lbl_status = QLabel("No file loaded.")
         self.layout.addWidget(self.lbl_status)
 
-        # --- Data Selection Controls ---
+        # --- Folder Selector ---
         self.layout.addWidget(QLabel("Folder:"))
         self.combo_folder = QComboBox()
         self.combo_folder.currentIndexChanged.connect(self.on_folder_change)
         self.layout.addWidget(self.combo_folder)
 
+        # --- Histogram Selector ---
         self.layout.addWidget(QLabel("Histogram:"))
         self.combo_hist = QComboBox()
         self.combo_hist.currentIndexChanged.connect(self.on_hist_change)
         self.layout.addWidget(self.combo_hist)
 
-        # --- Matplotlib Canvas Integration ---
-        # Using Figure() directly is thread-safe and preferred for GUI embedding
+        # --- Matplotlib Figure + Canvas ---
         self.figure = Figure(figsize=(5, 4), dpi=100)
         self.canvas = FigureCanvas(self.figure)
         self.ax = self.figure.add_subplot(111)
+        # >>> NEW: Matplotlib Toolbar (Zoom / Pan / Reset)
+        self.toolbar = NavigationToolbar2QT(self.canvas, self)
+        self.layout.addWidget(self.toolbar)
         self.layout.addWidget(self.canvas)
 
+        #  NEW: Mouse coordinate display
+        self.lbl_coords = QLabel("x: –, y: –")
+        self.layout.addWidget(self.lbl_coords)
+
+        #  NEW: Matplotlib event connections
+        self.canvas.mpl_connect("motion_notify_event", self.on_mouse_move)
+        self.canvas.mpl_connect("scroll_event", self.on_scroll)
+
+    # ------------------------------------------------------------------
+
     def load_file_dialog(self):
-        """Opens system file dialog to select a ROOT file."""
         filename, _ = QFileDialog.getOpenFileName(
             self, "Open ROOT File", "", "ROOT Files (*.root);;All Files (*)"
         )
@@ -67,87 +82,107 @@ class MainWindow(QMainWindow):
                 QMessageBox.critical(self, "Error", f"Failed to open file:\n{e}")
 
     def populate_folders(self):
-        """Extracts top-level keys from the ROOT file to populate the folder dropdown."""
         self.combo_folder.blockSignals(True)
         self.combo_folder.clear()
-        
-        # Retrieve keys and remove cycle numbers (e.g., 'name;1' -> 'name')
-        keys = sorted(list(set([k.split(";")[0] for k in self.root_file.keys()])))
-        
+        keys = sorted({k.split(";")[0] for k in self.root_file.keys()})
         self.combo_folder.addItems(keys)
         self.combo_folder.blockSignals(False)
-        
-        if keys: 
+
+        if keys:
             self.on_folder_change()
 
     def on_folder_change(self):
-        """Updates the histogram dropdown based on the selected folder."""
-        if not self.root_file: 
+        if not self.root_file:
             return
-            
+
         folder_name = self.combo_folder.currentText()
         obj = self.root_file[folder_name]
-        
+
         self.combo_hist.blockSignals(True)
         self.combo_hist.clear()
-        
-        hist_items = []
-        
-        # Case A: Object is a TDirectory (contains other keys)
-        if hasattr(obj, "keys"): 
-            hist_items = sorted(list(set([k.split(";")[0] for k in obj.keys()])))
-            
-        # Case B: Object is a top-level Histogram (TH1/TH2)
-        elif hasattr(obj, "classname") and obj.classname.startswith("TH"): 
+
+        if hasattr(obj, "keys"):
+            hist_items = sorted({k.split(";")[0] for k in obj.keys()})
+        elif hasattr(obj, "classname") and obj.classname.startswith("TH"):
             hist_items = [folder_name]
-            
+        else:
+            hist_items = []
+
         self.combo_hist.addItems(hist_items)
         self.combo_hist.blockSignals(False)
-        
-        if hist_items: 
+
+        if hist_items:
             self.on_hist_change()
 
     def on_hist_change(self):
-        """Triggered when a histogram is selected; initiates plotting."""
-        if not self.root_file: 
+        if not self.root_file:
             return
-            
+
         folder = self.combo_folder.currentText()
         hist = self.combo_hist.currentText()
-        
-        # Construct path depending on whether we are in a subdir or root
         path = hist if folder == hist else f"{folder}/{hist}"
-        
+
         try:
             self.plot_object(self.root_file[path], hist)
         except Exception as e:
             print(f"Error reading object: {e}")
 
     def plot_object(self, obj, title):
-        """Clears the canvas and renders the given ROOT object using mplhep."""
         self.ax.clear()
-        
-        # Handle 1D Histograms
+
         if obj.classname.startswith("TH1"):
             hep.histplot(obj, ax=self.ax)
             self.ax.set_ylabel("Counts")
-            
-        # Handle 2D Histograms (Heatmaps)
+
         elif obj.classname.startswith("TH2"):
             values = obj.values()
             x_edges = obj.axes[0].edges()
             y_edges = obj.axes[1].edges()
-            
+
             self.ax.imshow(
-                values.T, 
-                origin='lower', 
-                extent=[x_edges[0], x_edges[-1], y_edges[0], y_edges[-1]], 
-                aspect='auto', 
-                cmap='viridis'
+                values.T,
+                origin="lower",
+                extent=[x_edges[0], x_edges[-1], y_edges[0], y_edges[-1]],
+                aspect="auto",
+                cmap="viridis",
             )
-        
+
         self.ax.set_title(title)
-        self.canvas.draw()
+        self.canvas.draw_idle()
+
+    # ------------------------------------------------------------------
+    #  NEW: Interactivity
+    # ------------------------------------------------------------------
+
+    def on_mouse_move(self, event):
+        if event.inaxes:
+            self.lbl_coords.setText(
+                f"x: {event.xdata:.2f}, y: {event.ydata:.2f}"
+            )
+        else:
+            self.lbl_coords.setText("x: –, y: –")
+
+    def on_scroll(self, event):
+        if not event.inaxes:
+            return
+
+        base_scale = 1.2
+        scale = 1 / base_scale if event.button == "up" else base_scale
+
+        x_min, x_max = self.ax.get_xlim()
+        y_min, y_max = self.ax.get_ylim()
+
+        x_range = (x_max - x_min) * scale
+        y_range = (y_max - y_min) * scale
+
+        x_center = event.xdata
+        y_center = event.ydata
+
+        self.ax.set_xlim(x_center - x_range / 2, x_center + x_range / 2)
+        self.ax.set_ylim(y_center - y_range / 2, y_center + y_range / 2)
+
+        self.canvas.draw_idle()
+
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
