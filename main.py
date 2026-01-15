@@ -1,6 +1,7 @@
 import sys
 import uproot
 import mplhep as hep
+import numpy as np
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_qt5agg import (
     FigureCanvasQTAgg as FigureCanvas,
@@ -18,9 +19,11 @@ except Exception:
 
 
 class MainWindow(QMainWindow):
+    # Define supported ROOT classes for strict type filtering.
+    SUPPORTED_TYPES = ("TH1", "TH2")
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("HDTV GUI Prototype – Python Only")
+        self.setWindowTitle("HDTV GUI Prototype - Python Only")
         self.resize(1000, 700)
         self.root_file = None
 
@@ -96,7 +99,11 @@ class MainWindow(QMainWindow):
             return
 
         folder_name = self.combo_folder.currentText()
-        obj = self.root_file[folder_name]
+        # Safety check: Handle cases where the folder object cannot be retrieved
+        try:
+            obj = self.root_file[folder_name]
+        except Exception:
+            return
 
         self.combo_hist.blockSignals(True)
         self.combo_hist.clear()
@@ -128,27 +135,69 @@ class MainWindow(QMainWindow):
             print(f"Error reading object: {e}")
 
     def plot_object(self, obj, title):
+        """
+        Zentrale Funktion zur Steuerung des Plottings.
+        Entscheidet anhand des Typs, welche Unterfunktion genutzt wird.
+        """
+        # 1. Check: Ensure the object type is supported
+        if not hasattr(obj, "classname") or not obj.classname.startswith(self.SUPPORTED_TYPES):
+            print(f"Ignored unsupported object: {getattr(obj, 'classname', 'Unknown')}")
+            return
+
+        # Prepare Canvas
         self.ax.clear()
-
-        if obj.classname.startswith("TH1"):
-            hep.histplot(obj, ax=self.ax)
-            self.ax.set_ylabel("Counts")
-
-        elif obj.classname.startswith("TH2"):
-            values = obj.values()
-            x_edges = obj.axes[0].edges()
-            y_edges = obj.axes[1].edges()
-
-            self.ax.imshow(
-                values.T,
-                origin="lower",
-                extent=[x_edges[0], x_edges[-1], y_edges[0], y_edges[-1]],
-                aspect="auto",
-                cmap="viridis",
-            )
-
         self.ax.set_title(title)
+
+        # 2. Dispatch logic
+        if obj.classname.startswith("TH1"):
+            self._plot_th1(obj)
+        elif obj.classname.startswith("TH2"):
+            self._plot_th2(obj)
+        
+        # 3. Final Draw(once at the end)
         self.canvas.draw_idle()
+
+    def _plot_th1(self, obj):
+        """Rendering logic specific for 1D Histograms."""
+        hep.histplot(obj, ax=self.ax)
+        self.ax.set_ylabel("Counts")
+        # optional: self.ax.set_yscale("log")
+
+    def _plot_th2(self, obj):
+        """Rendering logic specific for 2D Histograms (Heatmaps)."""
+        values = obj.values()
+        x_edges = obj.axes[0].edges()
+        y_edges = obj.axes[1].edges()
+
+        # 'aspect="auto"' ensures the heatmap stretches to fill the canvas correctly
+        self.ax.imshow(
+            values.T,
+            origin="lower",
+            extent=[x_edges[0], x_edges[-1], y_edges[0], y_edges[-1]],
+            aspect="auto",
+            cmap="viridis",
+            interpolation="nearest"
+        )
+
+    # ------------------------------------------------------------------
+    # FIT API (Technical Preparation)
+    # These methods are intended for external calls by the Fit module.
+    # ------------------------------------------------------------------
+
+    def add_fit_curve(self, x_data, y_data, color="red", label="Fit"):
+        """Overlays a fit curve on the current plot without clearing the canvas."""
+        self.ax.plot(x_data, y_data, color=color, linewidth=2, label=label)
+        self.ax.legend()
+        self.canvas.draw_idle()
+
+    def add_marker(self, x, y, symbol="x", color="black"):
+        """Overlays a marker at a specific coordinate (e.g., for peak finding)."""
+        self.ax.scatter([x], [y], marker=symbol, color=color, s=100, zorder=10)
+        self.canvas.draw_idle()
+
+    def clear_overlays(self):
+        """Refreshes the plot to remove overlays."""
+        self.on_hist_change()
 
     # ------------------------------------------------------------------
     #  NEW: Interactivity
