@@ -9,7 +9,7 @@ from matplotlib.backends.backend_qt5agg import (
 )
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QVBoxLayout, QWidget,
-    QComboBox, QLabel, QPushButton, QFileDialog, QMessageBox
+    QComboBox, QLabel, QPushButton, QFileDialog, QMessageBox, QHBoxLayout, QCheckBox
 )
 
 try:
@@ -61,6 +61,24 @@ class MainWindow(QMainWindow):
         self.toolbar = NavigationToolbar2QT(self.canvas, self)
         self.layout.addWidget(self.toolbar)
         self.layout.addWidget(self.canvas)
+        
+        #--------------------------------------------------
+        # NEW: Container for Checkboxes (Log & Grid)
+        #--------------------------------------------------
+        self.controls_layout = QHBoxLayout()
+        
+        # Checkbox 1: Log Scale
+        self.chk_log = QCheckBox("SymLog Scale")
+        self.chk_log.stateChanged.connect(self.update_plot_style) # On click -> Update
+        self.controls_layout.addWidget(self.chk_log)
+
+        # Checkbox 2: Grid
+        self.chk_grid = QCheckBox("Show Grid")
+        self.chk_grid.stateChanged.connect(self.update_plot_style) # On click -> Update
+        self.controls_layout.addWidget(self.chk_grid)
+
+        self.layout.addLayout(self.controls_layout)
+        # --------------------------------------------------
 
         #  NEW: Mouse coordinate display
         self.lbl_coords = QLabel("x: –, y: –")
@@ -157,7 +175,19 @@ class MainWindow(QMainWindow):
         elif obj.classname.startswith("TH2"):
             self._plot_th2(obj)
         
-        # 3. Final Draw(once at the end)
+        self.update_plot_style()
+
+    def update_plot_style(self):
+        # 1. SymLog Logic
+        if self.chk_log.isChecked():
+            self.ax.set_yscale("symlog", linthresh=1)
+        else:
+            self.ax.set_yscale("linear")
+
+        # 2. Grid Logic
+        self.ax.grid(self.chk_grid.isChecked())
+
+        # 3. Redraw
         self.canvas.draw_idle()
 
     def _plot_th1(self, obj):
