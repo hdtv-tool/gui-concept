@@ -53,7 +53,7 @@ class MainWindow(QMainWindow):
         self.combo_hist.currentIndexChanged.connect(self.on_hist_change)
         self.layout.addWidget(self.combo_hist)
 
-        # --- Matplotlib Figure + Canvas ---
+        # --- Matplotlib Integration(Figure + Canvas) ---
         self.figure = Figure(figsize=(5, 4), dpi=100)
         self.canvas = FigureCanvas(self.figure)
         self.ax = self.figure.add_subplot(111)
@@ -69,6 +69,9 @@ class MainWindow(QMainWindow):
         #  NEW: Matplotlib event connections
         self.canvas.mpl_connect("motion_notify_event", self.on_mouse_move)
         self.canvas.mpl_connect("scroll_event", self.on_scroll)
+
+        # NEW: Connect click event
+        self.canvas.mpl_connect("button_press_event", self.on_click)
 
     # ------------------------------------------------------------------
 
@@ -136,8 +139,8 @@ class MainWindow(QMainWindow):
 
     def plot_object(self, obj, title):
         """
-        Zentrale Funktion zur Steuerung des Plottings.
-        Entscheidet anhand des Typs, welche Unterfunktion genutzt wird.
+        Central control function for plotting.
+        Decides which sub-function to use based on the object type.
         """
         # 1. Check: Ensure the object type is supported
         if not hasattr(obj, "classname") or not obj.classname.startswith(self.SUPPORTED_TYPES):
@@ -232,6 +235,12 @@ class MainWindow(QMainWindow):
 
         self.canvas.draw_idle()
 
+    def on_click(self, event):
+        if self.toolbar.mode != "":
+            return
+        if not event.inaxes: return
+        if event.button != 1: return
+        self.add_marker(event.xdata, event.ydata)
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
