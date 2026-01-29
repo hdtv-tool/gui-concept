@@ -2,14 +2,17 @@ import sys
 import uproot
 import mplhep as hep
 import numpy as np
+
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_qt5agg import (
     FigureCanvasQTAgg as FigureCanvas,
     NavigationToolbar2QT
 )
+
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QVBoxLayout, QWidget,
-    QComboBox, QLabel, QPushButton, QFileDialog, QMessageBox, QHBoxLayout, QCheckBox
+    QComboBox, QLabel, QPushButton, QFileDialog,
+    QMessageBox, QHBoxLayout, QCheckBox
 )
 
 try:
@@ -19,21 +22,28 @@ except Exception:
 
 
 class MainWindow(QMainWindow):
-    # Define supported ROOT classes for strict type filtering.
+
     SUPPORTED_TYPES = ("TH1", "TH2")
+
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("HDTV GUI Prototype - Python Only")
+
+        self.setWindowTitle("HDTV GUI Prototype – Python Only")
         self.resize(1000, 700)
+
         self.root_file = None
 
-        # --- Main Layout ---
+        # Gate / Cut state
+        self.cut_points = []
+        self.cut_min_bin = None
+        self.cut_max_bin = None
+
+        # ===================== UI =====================
+
         self.widget = QWidget()
-        self.layout = QVBoxLayout()
-        self.widget.setLayout(self.layout)
+        self.layout = QVBoxLayout(self.widget)
         self.setCentralWidget(self.widget)
 
-        # --- File Loading ---
         self.btn_load = QPushButton("Load ROOT File")
         self.btn_load.clicked.connect(self.load_file_dialog)
         self.layout.addWidget(self.btn_load)
@@ -41,77 +51,81 @@ class MainWindow(QMainWindow):
         self.lbl_status = QLabel("No file loaded.")
         self.layout.addWidget(self.lbl_status)
 
-        # --- Folder Selector ---
         self.layout.addWidget(QLabel("Folder:"))
         self.combo_folder = QComboBox()
         self.combo_folder.currentIndexChanged.connect(self.on_folder_change)
         self.layout.addWidget(self.combo_folder)
 
-        # --- Histogram Selector ---
         self.layout.addWidget(QLabel("Histogram:"))
         self.combo_hist = QComboBox()
         self.combo_hist.currentIndexChanged.connect(self.on_hist_change)
         self.layout.addWidget(self.combo_hist)
 
-        # --- Matplotlib Integration(Figure + Canvas) ---
+        # ===================== Matplotlib =====================
+
         self.figure = Figure(figsize=(5, 4), dpi=100)
         self.canvas = FigureCanvas(self.figure)
         self.ax = self.figure.add_subplot(111)
-        # >>> NEW: Matplotlib Toolbar (Zoom / Pan / Reset)
+
         self.toolbar = NavigationToolbar2QT(self.canvas, self)
         self.layout.addWidget(self.toolbar)
         self.layout.addWidget(self.canvas)
-        
-        #--------------------------------------------------
-        # NEW: Container for Checkboxes (Log & Grid)
-        #--------------------------------------------------
-        self.controls_layout = QHBoxLayout()
-        
-        # Checkbox 1: Log Scale
-        self.chk_log = QCheckBox("SymLog Scale")
-        self.chk_log.stateChanged.connect(self.update_plot_style) # On click -> Update
-        self.controls_layout.addWidget(self.chk_log)
 
-        # Checkbox 2: Grid
-        self.chk_grid = QCheckBox("Show Grid")
-        self.chk_grid.stateChanged.connect(self.update_plot_style) # On click -> Update
-        self.controls_layout.addWidget(self.chk_grid)
+        # ===================== Controls =====================
 
-        self.layout.addLayout(self.controls_layout)
-        # --------------------------------------------------
+        controls = QHBoxLayout()
 
-        #  NEW: Mouse coordinate display
+        self.chk_log = QCheckBox("SymLog Y")
+        self.chk_log.stateChanged.connect(self.update_plot_style)
+        controls.addWidget(self.chk_log)
+
+        self.chk_grid = QCheckBox("Grid")
+        self.chk_grid.stateChanged.connect(self.update_plot_style)
+        controls.addWidget(self.chk_grid)
+
+        self.chk_projection = QCheckBox("TH2 Projection")
+        self.chk_projection.stateChanged.connect(self.on_hist_change)
+        controls.addWidget(self.chk_projection)
+
+        controls.addWidget(QLabel("Axis:"))
+        self.combo_proj_axis = QComboBox()
+        self.combo_proj_axis.addItems(["X", "Y"])
+        self.combo_proj_axis.currentIndexChanged.connect(self.on_hist_change)
+        controls.addWidget(self.combo_proj_axis)
+
+        self.layout.addLayout(controls)
+
         self.lbl_coords = QLabel("x: –, y: –")
         self.layout.addWidget(self.lbl_coords)
 
-        #  NEW: Matplotlib event connections
+        # ===================== Events =====================
+
         self.canvas.mpl_connect("motion_notify_event", self.on_mouse_move)
         self.canvas.mpl_connect("scroll_event", self.on_scroll)
-
-        # NEW: Connect click event
         self.canvas.mpl_connect("button_press_event", self.on_click)
 
-    # ------------------------------------------------------------------
+    # ======================================================
+    # File handling
+    # ======================================================
 
     def load_file_dialog(self):
         filename, _ = QFileDialog.getOpenFileName(
-            self, "Open ROOT File", "", "ROOT Files (*.root);;All Files (*)"
+            self, "Open ROOT File", "", "ROOT Files (*.root)"
         )
-        if filename:
-            try:
-                self.root_file = uproot.open(filename)
-                self.lbl_status.setText(f"Loaded: {filename}")
-                self.populate_folders()
-            except Exception as e:
-                QMessageBox.critical(self, "Error", f"Failed to open file:\n{e}")
+        if not filename:
+            return
+
+        try:
+            self.root_file = uproot.open(filename)
+            self.lbl_status.setText(f"Loaded: {filename}")
+            self.populate_folders()
+        except Exception as e:
+            QMessageBox.critical(self, "Error", str(e))
 
     def populate_folders(self):
-        self.combo_folder.blockSignals(True)
         self.combo_folder.clear()
         keys = sorted({k.split(";")[0] for k in self.root_file.keys()})
         self.combo_folder.addItems(keys)
-        self.combo_folder.blockSignals(False)
-
         if keys:
             self.on_folder_change()
 
@@ -119,27 +133,21 @@ class MainWindow(QMainWindow):
         if not self.root_file:
             return
 
-        folder_name = self.combo_folder.currentText()
-        # Safety check: Handle cases where the folder object cannot be retrieved
+        self.combo_hist.clear()
+        name = self.combo_folder.currentText()
+
         try:
-            obj = self.root_file[folder_name]
+            obj = self.root_file[name]
         except Exception:
             return
 
-        self.combo_hist.blockSignals(True)
-        self.combo_hist.clear()
-
         if hasattr(obj, "keys"):
-            hist_items = sorted({k.split(";")[0] for k in obj.keys()})
-        elif hasattr(obj, "classname") and obj.classname.startswith("TH"):
-            hist_items = [folder_name]
+            items = sorted({k.split(";")[0] for k in obj.keys()})
         else:
-            hist_items = []
+            items = [name]
 
-        self.combo_hist.addItems(hist_items)
-        self.combo_hist.blockSignals(False)
-
-        if hist_items:
+        self.combo_hist.addItems(items)
+        if items:
             self.on_hist_change()
 
     def on_hist_change(self):
@@ -153,88 +161,88 @@ class MainWindow(QMainWindow):
         try:
             self.plot_object(self.root_file[path], hist)
         except Exception as e:
-            print(f"Error reading object: {e}")
+            print(e)
+
+    # ======================================================
+    # Plot logic
+    # ======================================================
 
     def plot_object(self, obj, title):
-        """
-        Central control function for plotting.
-        Decides which sub-function to use based on the object type.
-        """
-        # 1. Check: Ensure the object type is supported
-        if not hasattr(obj, "classname") or not obj.classname.startswith(self.SUPPORTED_TYPES):
-            print(f"Ignored unsupported object: {getattr(obj, 'classname', 'Unknown')}")
+        if not hasattr(obj, "classname"):
             return
 
-        # Prepare Canvas
+        if not obj.classname.startswith(self.SUPPORTED_TYPES):
+            return
+
         self.ax.clear()
         self.ax.set_title(title)
 
-        # 2. Dispatch logic
         if obj.classname.startswith("TH1"):
-            self._plot_th1(obj)
+            hep.histplot(obj, ax=self.ax)
+            self.ax.set_ylabel("Counts")
+
         elif obj.classname.startswith("TH2"):
-            self._plot_th2(obj)
-        
+            if self.chk_projection.isChecked():
+                axis = self.combo_proj_axis.currentText().lower()
+                centers, proj = self.project_th2(
+                    obj, axis,
+                    self.cut_min_bin,
+                    self.cut_max_bin
+                )
+                self.ax.plot(
+                    centers, proj,
+                    drawstyle="steps-mid",
+                    color="red",
+                    label="Projection"
+                )
+                self.ax.legend()
+            else:
+                values = obj.values()
+                x_edges = obj.axes[0].edges()
+                y_edges = obj.axes[1].edges()
+                self.ax.imshow(
+                    values.T,
+                    origin="lower",
+                    extent=[x_edges[0], x_edges[-1],
+                            y_edges[0], y_edges[-1]],
+                    aspect="auto",
+                    cmap="viridis"
+                )
+
         self.update_plot_style()
 
     def update_plot_style(self):
-        # 1. SymLog Logic
-        if self.chk_log.isChecked():
-            self.ax.set_yscale("symlog", linthresh=1)
-        else:
-            self.ax.set_yscale("linear")
-
-        # 2. Grid Logic
+        self.ax.set_yscale("symlog" if self.chk_log.isChecked() else "linear")
         self.ax.grid(self.chk_grid.isChecked())
-
-        # 3. Redraw
         self.canvas.draw_idle()
 
-    def _plot_th1(self, obj):
-        """Rendering logic specific for 1D Histograms."""
-        hep.histplot(obj, ax=self.ax)
-        self.ax.set_ylabel("Counts")
-        # optional: self.ax.set_yscale("log")
+    # ======================================================
+    # Projection & Cuts
+    # ======================================================
 
-    def _plot_th2(self, obj):
-        """Rendering logic specific for 2D Histograms (Heatmaps)."""
+    def project_th2(self, obj, axis, min_bin, max_bin):
         values = obj.values()
-        x_edges = obj.axes[0].edges()
-        y_edges = obj.axes[1].edges()
 
-        # 'aspect="auto"' ensures the heatmap stretches to fill the canvas correctly
-        self.ax.imshow(
-            values.T,
-            origin="lower",
-            extent=[x_edges[0], x_edges[-1], y_edges[0], y_edges[-1]],
-            aspect="auto",
-            cmap="viridis",
-            interpolation="nearest"
-        )
+        if axis == "x":
+            lo = 0 if min_bin is None else min_bin
+            hi = values.shape[1] if max_bin is None else max_bin
+            proj = np.sum(values[:, lo:hi], axis=1)
+            edges = obj.axes[0].edges()
+        else:
+            lo = 0 if min_bin is None else min_bin
+            hi = values.shape[0] if max_bin is None else max_bin
+            proj = np.sum(values[lo:hi, :], axis=0)
+            edges = obj.axes[1].edges()
 
-    # ------------------------------------------------------------------
-    # FIT API (Technical Preparation)
-    # These methods are intended for external calls by the Fit module.
-    # ------------------------------------------------------------------
+        centers = 0.5 * (edges[:-1] + edges[1:])
+        return centers, proj
 
-    def add_fit_curve(self, x_data, y_data, color="red", label="Fit"):
-        """Overlays a fit curve on the current plot without clearing the canvas."""
-        self.ax.plot(x_data, y_data, color=color, linewidth=2, label=label)
-        self.ax.legend()
-        self.canvas.draw_idle()
+    def find_bin_from_edges(self, edges, value):
+        return np.clip(np.searchsorted(edges, value) - 1, 0, len(edges) - 2)
 
-    def add_marker(self, x, y, symbol="x", color="black"):
-        """Overlays a marker at a specific coordinate (e.g., for peak finding)."""
-        self.ax.scatter([x], [y], marker=symbol, color=color, s=100, zorder=10)
-        self.canvas.draw_idle()
-
-    def clear_overlays(self):
-        """Refreshes the plot to remove overlays."""
-        self.on_hist_change()
-
-    # ------------------------------------------------------------------
-    #  NEW: Interactivity
-    # ------------------------------------------------------------------
+    # ======================================================
+    # Interactivity
+    # ======================================================
 
     def on_mouse_move(self, event):
         if event.inaxes:
@@ -248,29 +256,58 @@ class MainWindow(QMainWindow):
         if not event.inaxes:
             return
 
-        base_scale = 1.2
-        scale = 1 / base_scale if event.button == "up" else base_scale
+        scale = 1 / 1.2 if event.button == "up" else 1.2
+        x0, x1 = self.ax.get_xlim()
+        y0, y1 = self.ax.get_ylim()
 
-        x_min, x_max = self.ax.get_xlim()
-        y_min, y_max = self.ax.get_ylim()
-
-        x_range = (x_max - x_min) * scale
-        y_range = (y_max - y_min) * scale
-
-        x_center = event.xdata
-        y_center = event.ydata
-
-        self.ax.set_xlim(x_center - x_range / 2, x_center + x_range / 2)
-        self.ax.set_ylim(y_center - y_range / 2, y_center + y_range / 2)
+        cx, cy = event.xdata, event.ydata
+        self.ax.set_xlim(cx - (x1 - x0) * scale / 2,
+                         cx + (x1 - x0) * scale / 2)
+        self.ax.set_ylim(cy - (y1 - y0) * scale / 2,
+                         cy + (y1 - y0) * scale / 2)
 
         self.canvas.draw_idle()
 
     def on_click(self, event):
-        if self.toolbar.mode != "":
+        if self.toolbar.mode or not event.inaxes or event.button != 1:
             return
-        if not event.inaxes: return
-        if event.button != 1: return
-        self.add_marker(event.xdata, event.ydata)
+
+        if not self.chk_projection.isChecked():
+            return
+
+        axis = self.combo_proj_axis.currentText().lower()
+
+        folder = self.combo_folder.currentText()
+        hist = self.combo_hist.currentText()
+        path = hist if folder == hist else f"{folder}/{hist}"
+        obj = self.root_file[path]
+
+        if axis == "x":
+            # Gate on Y → horizontal lines
+            self.ax.axhline(event.ydata, color="orange", linestyle="--")
+            value = event.ydata
+            edges = obj.axes[1].edges()
+        else:
+            # Gate on X → vertical lines
+            self.ax.axvline(event.xdata, color="orange", linestyle="--")
+            value = event.xdata
+            edges = obj.axes[0].edges()
+
+        self.cut_points.append(value)
+
+        if len(self.cut_points) == 2:
+            v0, v1 = sorted(self.cut_points)
+            self.cut_min_bin = self.find_bin_from_edges(edges, v0)
+            self.cut_max_bin = self.find_bin_from_edges(edges, v1)
+            self.cut_points.clear()
+            self.on_hist_change()
+
+        self.canvas.draw_idle()
+
+
+# ==========================================================
+# Main
+# ==========================================================
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
