@@ -4,3 +4,4 @@ matplotlib
 mplhep
 numpy
 awkward
+scipy

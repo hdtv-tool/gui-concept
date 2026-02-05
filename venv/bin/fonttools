@@ -1,4 +1,4 @@
-#!/home/nasir/hdtv_gui_prototype/venv/bin/python
+#!/Users/woosangkwon/gui-concept/venv/bin/python3.14
 import sys
 from fontTools.__main__ import main
 if __name__ == '__main__':
