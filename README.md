@@ -1,37 +1,46 @@
-# gui-concept
-Frontend purely in python
-
-https://www.desy.de/~tadej/tutorial/
-
 # HDTV GUI Prototype (Python Standalone)
 
-Ein leichtgewichtiger Viewer für ROOT-Histogramme, basierend auf Python (`PyQt5`, `Uproot`, `Matplotlib`).
-Dieses Tool ersetzt die Abhängigkeit von X11-Forwarding und lokalen C++ ROOT-Installationen durch eine native, plattformunabhängige Lösung.
+Ein moderner Viewer für ROOT-Histogramme, basierend auf Python (`PyQt5`, `Uproot`, `Matplotlib`, `Scipy`). Dieses Tool ermöglicht eine native, plattformunabhängige Analyse von ROOT-Dateien ohne die Abhängigkeit von lokalen C++ ROOT-Installationen oder X11-Forwarding.
 
 ---
 
 ## Funktionsumfang
 
-### 1. Datei-Handling & Navigation
-* **Universal-Import:** Laden beliebiger `.root` Dateien über den nativen System-Dialog.
-* **Struktur-Browser:** Effizientes Navigieren durch Ordnerstrukturen (TDirectory).
-* **Intelligente Filter:** Zeigt automatisch nur kompatible Objekte (`TH1`, `TH2`) an.
-* **Stabilität:** Robuste Fehlerbehandlung bei leeren Ordnern oder unbekannten Dateitypen (keine Abstürze).
+### 1. Visualisierung und Navigation
+* **Universal-Import:** Laden von `.root` Dateien über einen nativen System-Dialog.
+* **Struktur-Browser:** Navigation durch Ordnerstrukturen innerhalb der ROOT-Datei (TDirectory).
+* **Intelligente Filter:** Automatische Identifikation und Anzeige von `TH1` und `TH2` Objekten.
+* **Koordinaten-Anzeige:** Echtzeit-Anzeige der x/y-Werte bei Mausbewegung über dem Spektrum.
 
-### 2. Visualisierung (Plotting)
-* **1D-Histogramme (TH1):** Präzise Darstellung als Step-Plot mit korrekten Bins.
-* **2D-Matrizen (TH2):** Darstellung als Heatmap (Colorplot) mit modernen Farbschemata (z.B. Viridis).
-* **Live-Koordinaten:** Exakte Anzeige der x/y-Werte bei Mausbewegung über dem Plot.
+### 2. Analyse-Funktionen
+* **Gauß-Fits:** Integrierte Peak-Analyse mittels `scipy.optimize`. Berechnet Position (Mean), Breite (Sigma) und Amplitude für den aktuell gewählten Zoom-Bereich.
+* **TH2 Projektionen:** Interaktive Erzeugung von 1D-Schnitten aus 2D-Matrizen durch das Setzen von Markern direkt im Plot.
+* **Skalierung:** Flexible Umschaltung zwischen linearer und symmetrisch-logarithmischer (SymLog) Darstellung.
 
-### 3. Interaktivität & Analyse
-* **Native Toolbar:** Werkzeuge zum Zoomen (Rechteck), Pannen (Verschieben) und Zurücksetzen der Ansicht.
-* **Click-to-Mark:** Interaktives Setzen von Markern per Mausklick zur schnellen Peak-Identifikation.
-* **Konflikt-Schutz:** Eine intelligente Logik verhindert das versehentliche Setzen von Markern, während das Zoom-Werkzeug aktiv ist.
+### 3. Interaktivität
+* **Dynamischer Zoom:** Zentriertes Zoomen auf den Mauszeiger via Mausrad oder Trackpad.
+* **Hotkey-Steuerung:** Optimierter Workflow durch Tastaturkurzbefehle für alle Hauptfunktionen.
+* **Automatisches Fokus-Management:** Verbesserte Reaktionsfähigkeit der Steuerung auf verschiedenen Betriebssystemen (macOS, Windows, Linux).
 
-### 4. Live-Controls (Darstellungs-Optionen)
-* **SymLog Skalierung:** Umschaltbar zwischen Linear und Symmetrisch-Logarithmisch (behandelt Nullen und negative Werte korrekt, im Gegensatz zu einfachem Log).
-* **Grid (Gitter):** Ein-/Ausblendbares Raster zur besseren Orientierung im Spektrum.
-* **State Persistence:** Benutzereinstellungen (z.B. Log-Skala aktiviert) bleiben erhalten, auch wenn durch verschiedene Histogramme geblättert wird.
+---
+
+## Hotkeys
+
+| Taste | Funktion |
+| :--- | :--- |
+| **F** | Führt einen Gauß-Fit im aktuell sichtbaren Bereich aus. |
+| **L** | Schaltet zwischen linearer und SymLog-Skala um. |
+| **G** | Blendet das Koordinatengitter ein oder aus. |
+| **C / Backspace** | Löscht aktive Fits/Marker und setzt die Ansicht zurück. |
+
+---
+
+## Systemanforderungen
+
+Das Tool läuft rein auf Python-Basis. Ein installiertes C++ ROOT Framework ist nicht erforderlich.
+
+* **Python Version:** 3.x
+* **Bibliotheken:** `PyQt5`, `uproot`, `matplotlib`, `mplhep`, `numpy`, `scipy`
 
 ---
 
